@@ -1,0 +1,58 @@
+body {
+  background-color: #f8f9fa;
+}
+
+.card {
+  border: none;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.list-group-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+}
+
+.income {
+  background-color: #e8f5e9; /* Зеленый для доходов */
+}
+
+.expense {
+  background-color: #ffebee; /* Красный для расходов */
+}
+
+.transaction-date {
+  font-size: 0.8em;
+  color: #666;
+  display: block;
+  margin-top: 5px;
+}
+
+.transaction-description {
+  flex-grow: 1;
+  margin-right: 10px;
+}
+
+.btn-trash {
+  background: none;
+  border: none;
+  color: #dc3545;
+  cursor: pointer;
+  padding: 5px;
+}
+
+.btn-trash:hover {
+  color: #c82333;
+}
+
+/* Стили для свернутого списка */
+.collapsed .list-group-item:nth-child(n+4) {
+  display: none;
+}
+
+/* Стили для кнопки */
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+}
