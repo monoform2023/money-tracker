@@ -317,17 +317,35 @@ function renderTransactions() {
   }
 }
 
-// Удаление транзакции
+// Переменная для хранения ID транзакции, которую нужно удалить
+let transactionToDelete = null;
+
+// Удаление транзакции (показываем подтверждение)
 window.deleteTransaction = (id) => {
-  db.collection('transactions').doc(id).delete()
-    .then(() => {
-      console.log("Транзакция удалена успешно!");
-      loadTransactions();
-    })
-    .catch((error) => {
-      console.error("Ошибка удаления транзакции: ", error);
-    });
+  transactionToDelete = id;
+  const deleteModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+  deleteModal.show();
 };
+
+// Подтверждение удаления
+document.getElementById('confirmDelete').addEventListener('click', () => {
+  if (transactionToDelete) {
+    db.collection('transactions').doc(transactionToDelete).delete()
+      .then(() => {
+        console.log("Транзакция удалена успешно!");
+        loadTransactions();
+        transactionToDelete = null;
+        
+        // Закрываем модальное окно
+        const deleteModal = bootstrap.Modal.getInstance(document.getElementById('deleteConfirmModal'));
+        deleteModal.hide();
+      })
+      .catch((error) => {
+        console.error("Ошибка удаления транзакции: ", error);
+        alert('Не удалось удалить транзакцию');
+      });
+  }
+});
 
 // Обновление балансов
 function updateBalances() {
