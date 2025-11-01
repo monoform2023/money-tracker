@@ -35,12 +35,20 @@ const toggleTransactionsButton = document.getElementById('toggleTransactions');
 const archiveButton = document.getElementById('archiveBtn');
 const confirmArchiveButton = document.getElementById('confirmArchive');
 const viewArchivesButton = document.getElementById('viewArchivesBtn');
+const changeUserButton = document.getElementById('changeUserBtn');
+const currentUserDisplay = document.getElementById('currentUserDisplay');
+const filterUserSelect = document.getElementById('filterUser');
+const filterCategorySelect = document.getElementById('filterCategory');
+const expandFiltersBtn = document.getElementById('expandFiltersBtn');
+const filtersContent = document.getElementById('filtersContent');
+const analyticsButton = document.getElementById('analyticsBtn');
 
 let transactions = [];
 let filteredTransactions = [];
 let isCollapsed = true;
 let editingTransactionId = null;
 let selectedCategory = null; // По умолчанию без категории
+let currentUser = null; // Текущий пользователь
 
 // Словарь ключевых слов для автоматического определения категории
 const categoryKeywords = {
@@ -57,6 +65,59 @@ const categoryKeywords = {
   'Новые проекты': ['новый проект', 'проект', 'разработка', 'дизайн'],
   'Налоги': ['налог', 'налоги', 'ндс', 'усн', 'ип', 'фнс', 'инспекция']
 };
+
+// Функции для работы с пользователями
+function getCurrentUser() {
+  return localStorage.getItem('moneyTrackerUser');
+}
+
+function setCurrentUser(userName) {
+  localStorage.setItem('moneyTrackerUser', userName);
+  currentUser = userName;
+  currentUserDisplay.textContent = userName;
+}
+
+function showUserSelectModal() {
+  const userModal = new bootstrap.Modal(document.getElementById('userSelectModal'));
+  userModal.show();
+}
+
+// Проверка и инициализация пользователя при загрузке
+function initializeUser() {
+  const savedUser = getCurrentUser();
+  if (savedUser) {
+    currentUser = savedUser;
+    currentUserDisplay.textContent = savedUser;
+  } else {
+    showUserSelectModal();
+  }
+}
+
+// Обработчики выбора пользователя
+document.querySelectorAll('.user-select-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const userName = btn.getAttribute('data-user');
+    setCurrentUser(userName);
+    const userModal = bootstrap.Modal.getInstance(document.getElementById('userSelectModal'));
+    userModal.hide();
+  });
+});
+
+// Обработчик смены пользователя
+changeUserButton.addEventListener('click', () => {
+  showUserSelectModal();
+});
+
+// Обработчик раскрытия/скрытия фильтров
+expandFiltersBtn.addEventListener('click', () => {
+  if (filtersContent.style.display === 'none') {
+    filtersContent.style.display = 'block';
+    expandFiltersBtn.classList.add('expanded');
+  } else {
+    filtersContent.style.display = 'none';
+    expandFiltersBtn.classList.remove('expanded');
+  }
+});
 
 // Функция автоматического определения категории по ключевым словам
 function detectCategory(description) {
@@ -98,17 +159,19 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   
   // Обработчик для кнопки раскрытия дополнительных категорий
-  expandBtn.addEventListener('click', () => {
-    isExpanded = !isExpanded;
-    
-    if (isExpanded) {
-      extraCategories.style.display = 'flex';
-      expandBtn.classList.add('expanded');
-    } else {
-      extraCategories.style.display = 'none';
-      expandBtn.classList.remove('expanded');
-    }
-  });
+  if (expandBtn && extraCategories) {
+    expandBtn.addEventListener('click', () => {
+      isExpanded = !isExpanded;
+      
+      if (isExpanded) {
+        extraCategories.style.display = 'flex';
+        expandBtn.classList.add('expanded');
+      } else {
+        extraCategories.style.display = 'none';
+        expandBtn.classList.remove('expanded');
+      }
+    });
+  }
 });
 
 // Автоматическое определение категории при вводе описания
@@ -146,6 +209,7 @@ addTransactionButton.addEventListener('click', () => {
     amount: parseFloat(amountInput.value),
     type: typeInput.value,
     payment: paymentInput.value,
+    user: currentUser, // Добавляем текущего пользователя
     date: editingTransactionId ? transactions.find(t => t.id === editingTransactionId).date : new Date().toISOString()
   };
   
@@ -287,15 +351,19 @@ function updateBalances() {
 filterButton.addEventListener('click', () => {
   const searchText = searchInput.value.toLowerCase();
   const type = filterType.value;
+  const user = filterUserSelect.value;
+  const category = filterCategorySelect.value;
   const startDate = startDateInput.value;
   const endDate = endDateInput.value;
 
   filteredTransactions = transactions.filter((transaction) => {
     const matchesSearch = transaction.description.toLowerCase().includes(searchText);
     const matchesType = type === 'all' || transaction.type === type;
+    const matchesUser = user === 'all' || transaction.user === user;
+    const matchesCategory = category === 'all' || transaction.category === category;
     const transactionDate = new Date(transaction.date).toISOString().split('T')[0];
     const matchesDate = (!startDate || transactionDate >= startDate) && (!endDate || transactionDate <= endDate);
-    return matchesSearch && matchesType && matchesDate;
+    return matchesSearch && matchesType && matchesUser && matchesCategory && matchesDate;
   });
 
   renderTransactions();
@@ -305,6 +373,8 @@ filterButton.addEventListener('click', () => {
 resetFilterButton.addEventListener('click', () => {
   searchInput.value = '';
   filterType.value = 'all';
+  filterUserSelect.value = 'all';
+  filterCategorySelect.value = 'all';
   startDateInput.value = '';
   endDateInput.value = '';
   filteredTransactions = [...transactions];
@@ -489,6 +559,155 @@ window.exportArchive = async (archiveId) => {
     alert('Не удалось экспортировать архив');
   }
 };
+
+// Аналитика и графики
+let chartInstances = {}; // Хранилище экземпляров графиков
+
+analyticsButton.addEventListener('click', () => {
+  buildCharts();
+  const analyticsModal = new bootstrap.Modal(document.getElementById('analyticsModal'));
+  analyticsModal.show();
+});
+
+function buildCharts() {
+  // Уничтожаем старые графики перед созданием новых
+  Object.values(chartInstances).forEach(chart => {
+    if (chart) chart.destroy();
+  });
+  
+  buildCategoryChart();
+  buildIncomeExpenseChart();
+  buildBalanceChart();
+}
+
+// 1. Круговая диаграмма расходов по категориям
+function buildCategoryChart() {
+  const expenses = filteredTransactions.filter(t => t.type === 'expense' && t.category);
+  const categoryData = {};
+  
+  expenses.forEach(transaction => {
+    if (!categoryData[transaction.category]) {
+      categoryData[transaction.category] = 0;
+    }
+    categoryData[transaction.category] += transaction.amount;
+  });
+  
+  const ctx = document.getElementById('categoryChart').getContext('2d');
+  chartInstances.categoryChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(categoryData),
+      datasets: [{
+        data: Object.values(categoryData),
+        backgroundColor: [
+          '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+          '#FF9F40', '#FF6384', '#C9CBCF', '#4BC0C0', '#FF6384',
+          '#36A2EB', '#FFCE56', '#9966FF'
+        ]
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: {
+          position: 'bottom'
+        }
+      }
+    }
+  });
+}
+
+// 2. График доходов vs расходов
+function buildIncomeExpenseChart() {
+  const income = filteredTransactions
+    .filter(t => t.type === 'income')
+    .reduce((sum, t) => sum + t.amount, 0);
+  
+  const expense = filteredTransactions
+    .filter(t => t.type === 'expense')
+    .reduce((sum, t) => sum + t.amount, 0);
+  
+  const ctx = document.getElementById('incomeExpenseChart').getContext('2d');
+  chartInstances.incomeExpenseChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['Доходы', 'Расходы'],
+      datasets: [{
+        data: [income, expense],
+        backgroundColor: ['#4CAF50', '#FF6384']
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+// 3. Динамика баланса по времени
+function buildBalanceChart() {
+  // Группируем транзакции по датам
+  const dateData = {};
+  
+  filteredTransactions.forEach(transaction => {
+    const date = new Date(transaction.date).toLocaleDateString('ru-RU');
+    if (!dateData[date]) {
+      dateData[date] = 0;
+    }
+    dateData[date] += transaction.type === 'income' ? transaction.amount : -transaction.amount;
+  });
+  
+  // Сортируем по датам
+  const sortedDates = Object.keys(dateData).sort((a, b) => {
+    return new Date(a.split('.').reverse().join('-')) - new Date(b.split('.').reverse().join('-'));
+  });
+  
+  // Вычисляем накопительный баланс
+  let cumulativeBalance = 0;
+  const balanceData = sortedDates.map(date => {
+    cumulativeBalance += dateData[date];
+    return cumulativeBalance;
+  });
+  
+  const ctx = document.getElementById('balanceChart').getContext('2d');
+  chartInstances.balanceChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: sortedDates,
+      datasets: [{
+        label: 'Баланс',
+        data: balanceData,
+        borderColor: '#4CAF50',
+        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+        tension: 0.4,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      scales: {
+        y: {
+          beginAtZero: false
+        }
+      }
+    }
+  });
+}
+
+// Инициализация пользователя при загрузке страницы
+initializeUser();
 
 // Загрузка транзакций при загрузке страницы
 loadTransactions();
