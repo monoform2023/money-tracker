@@ -32,6 +32,9 @@ const filterButton = document.getElementById('filter');
 const resetFilterButton = document.getElementById('resetFilter');
 const exportButton = document.getElementById('export');
 const toggleTransactionsButton = document.getElementById('toggleTransactions');
+const archiveButton = document.getElementById('archiveBtn');
+const confirmArchiveButton = document.getElementById('confirmArchive');
+const viewArchivesButton = document.getElementById('viewArchivesBtn');
 
 let transactions = [];
 let filteredTransactions = [];
@@ -361,6 +364,129 @@ window.editTransaction = (id) => {
     
     editingTransactionId = id;
     addTransactionButton.textContent = 'Сохранить';
+  }
+};
+
+// Архивация транзакций
+archiveButton.addEventListener('click', () => {
+  // Обновляем количество транзакций в модальном окне
+  document.getElementById('transactionCount').textContent = transactions.length;
+  
+  // Показываем модальное окно подтверждения
+  const archiveModal = new bootstrap.Modal(document.getElementById('archiveModal'));
+  archiveModal.show();
+});
+
+// Подтверждение архивации
+confirmArchiveButton.addEventListener('click', async () => {
+  if (transactions.length === 0) {
+    alert('Нет транзакций для архивации');
+    return;
+  }
+  
+  try {
+    // Создаем архив с текущей датой
+    const archiveData = {
+      date: new Date().toISOString(),
+      transactions: transactions,
+      totalAmount: transactions.reduce((sum, t) => {
+        return sum + (t.type === 'income' ? t.amount : -t.amount);
+      }, 0),
+      transactionCount: transactions.length
+    };
+    
+    // Сохраняем архив в коллекцию archives
+    await db.collection('archives').add(archiveData);
+    console.log('Архив создан успешно!');
+    
+    // Удаляем все транзакции из основной коллекции
+    const batch = db.batch();
+    transactions.forEach((transaction) => {
+      const docRef = db.collection('transactions').doc(transaction.id);
+      batch.delete(docRef);
+    });
+    await batch.commit();
+    console.log('Все транзакции удалены!');
+    
+    // Закрываем модальное окно
+    const archiveModal = bootstrap.Modal.getInstance(document.getElementById('archiveModal'));
+    archiveModal.hide();
+    
+    // Показываем уведомление
+    alert(`Успешно архивировано ${transactions.length} транзакций!`);
+    
+    // Перезагружаем список транзакций
+    loadTransactions();
+    
+  } catch (error) {
+    console.error('Ошибка архивации: ', error);
+    alert('Произошла ошибка при архивации. Попробуйте еще раз.');
+  }
+});
+
+// Просмотр архивов
+viewArchivesButton.addEventListener('click', async () => {
+  try {
+    // Загружаем архивы из Firebase
+    const archivesSnapshot = await db.collection('archives')
+      .orderBy('date', 'desc')
+      .get();
+    
+    const archivesList = document.getElementById('archivesList');
+    archivesList.innerHTML = '';
+    
+    if (archivesSnapshot.empty) {
+      archivesList.innerHTML = '<p class="text-center text-muted mt-3">Архивов пока нет</p>';
+    } else {
+      archivesSnapshot.forEach((doc) => {
+        const archive = doc.data();
+        const archiveDate = new Date(archive.date).toLocaleDateString('ru-RU', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        
+        const archiveItem = document.createElement('div');
+        archiveItem.className = 'list-group-item list-group-item-action';
+        archiveItem.innerHTML = `
+          <div class="d-flex w-100 justify-content-between">
+            <h6 class="mb-1">📅 ${archiveDate}</h6>
+            <small>${archive.transactionCount} транзакций</small>
+          </div>
+          <p class="mb-1">Итоговый баланс: <strong>${archive.totalAmount.toLocaleString('ru-RU', { style: 'currency', currency: 'RUB' })}</strong></p>
+          <button class="btn btn-sm btn-primary mt-2" onclick="exportArchive('${doc.id}')">Экспорт в Excel</button>
+        `;
+        archivesList.appendChild(archiveItem);
+      });
+    }
+    
+    // Показываем модальное окно
+    const archivesModal = new bootstrap.Modal(document.getElementById('archivesListModal'));
+    archivesModal.show();
+    
+  } catch (error) {
+    console.error('Ошибка загрузки архивов: ', error);
+    alert('Не удалось загрузить архивы');
+  }
+});
+
+// Экспорт архива в Excel
+window.exportArchive = async (archiveId) => {
+  try {
+    const archiveDoc = await db.collection('archives').doc(archiveId).get();
+    const archive = archiveDoc.data();
+    
+    const ws = XLSX.utils.json_to_sheet(archive.transactions);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Архив");
+    
+    const archiveDate = new Date(archive.date).toLocaleDateString('ru-RU');
+    XLSX.writeFile(wb, `archive_${archiveDate}.xlsx`);
+  } catch (error) {
+    console.error('Ошибка экспорта архива: ', error);
+    alert('Не удалось экспортировать архив');
   }
 };
 
