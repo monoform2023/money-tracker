@@ -36,6 +36,105 @@ const toggleTransactionsButton = document.getElementById('toggleTransactions');
 let transactions = [];
 let filteredTransactions = [];
 let isCollapsed = true;
+let editingTransactionId = null;
+let selectedCategory = null; // По умолчанию без категории
+
+// Словарь ключевых слов для автоматического определения категории
+const categoryKeywords = {
+  'ЗП': ['зп', 'зарплата', 'оклад', 'выплата', 'salary', 'переработка'],
+  'Аренда': ['аренда', 'rent', 'квартплата', 'помещение'],
+  'Доставка': ['доставка', 'delivery', 'транспорт', 'перевозка'],
+  'Сборка': ['сборка', 'монтаж', 'установка', 'сбор'],
+  'Материалы': ['материал', 'дсп', 'мдф', 'фурнитура', 'кромка', 'плита', 'доска', 'фанера', 'татхим', 'дсплит', 'вудсток', 'шпон', 'клей', 'мдм', 'профиль'],
+  'Реклама и сервисы': ['реклама', 'сервис', 'яндекс', 'google', 'advertising', 'продвижение', 'контекст', 'елама', 'директ', 'манго'],
+  'Хозрасходы': ['хозрасходы', 'хозяйственные', 'бытовые', 'канцелярия', 'уборка', 'дрова', 'производство', 'вывоз мусора', 'мусор'],
+  'Электричество': ['электричество', 'свет', 'электроэнергия', 'счет за свет'],
+  'Расходники': ['расходники', 'расходные', 'биты', 'диски', 'сверла', 'пилки', 'фрезы', 'фреза', 'заточка', 'пилы', 'пила', 'картон', 'упаковка', 'скотч', 'лемана', 'леруа'],
+  'Оборудование': [],
+  'Новые проекты': ['новый проект', 'проект', 'разработка', 'дизайн'],
+  'Налоги': ['налог', 'налоги', 'ндс', 'усн', 'ип', 'фнс', 'инспекция']
+};
+
+// Функция автоматического определения категории по ключевым словам
+function detectCategory(description) {
+  if (!description || description.trim() === '') {
+    return null;
+  }
+  
+  const lowerDescription = description.toLowerCase();
+  
+  for (const [category, keywords] of Object.entries(categoryKeywords)) {
+    for (const keyword of keywords) {
+      if (lowerDescription.includes(keyword)) {
+        return category;
+      }
+    }
+  }
+  
+  return null; // Возвращаем null, если ничего не найдено
+}
+
+// Обработчики для табов категорий
+document.addEventListener('DOMContentLoaded', () => {
+  const categoryTabs = document.querySelectorAll('.category-tab');
+  const expandBtn = document.getElementById('expandCategoriesBtn');
+  const extraCategories = document.getElementById('categoryTabsExtra');
+  let isExpanded = false;
+  
+  // Обработчики для всех табов категорий
+  categoryTabs.forEach(tab => {
+    tab.addEventListener('click', (e) => {
+      e.preventDefault();
+      // Убираем активный класс у всех табов
+      categoryTabs.forEach(t => t.classList.remove('active'));
+      // Добавляем активный класс к выбранному табу
+      tab.classList.add('active');
+      // Сохраняем выбранную категорию
+      selectedCategory = tab.getAttribute('data-category');
+    });
+  });
+  
+  // Обработчик для кнопки раскрытия дополнительных категорий
+  expandBtn.addEventListener('click', () => {
+    isExpanded = !isExpanded;
+    
+    if (isExpanded) {
+      extraCategories.style.display = 'flex';
+      expandBtn.classList.add('expanded');
+    } else {
+      extraCategories.style.display = 'none';
+      expandBtn.classList.remove('expanded');
+    }
+  });
+});
+
+// Автоматическое определение категории при вводе описания
+descriptionInput.addEventListener('input', () => {
+  const detectedCategory = detectCategory(descriptionInput.value);
+  
+  const categoryTabs = document.querySelectorAll('.category-tab');
+  
+  if (detectedCategory) {
+    // Ищем таб с найденной категорией
+    categoryTabs.forEach(tab => {
+      if (tab.getAttribute('data-category') === detectedCategory) {
+        // Убираем активный класс у всех табов
+        categoryTabs.forEach(t => t.classList.remove('active'));
+        // Добавляем активный класс найденному табу
+        tab.classList.add('active');
+        selectedCategory = detectedCategory;
+        
+        // Если категория в скрытом блоке, раскрываем его
+        const extraCategories = document.getElementById('categoryTabsExtra');
+        const expandBtn = document.getElementById('expandCategoriesBtn');
+        if (extraCategories.contains(tab) && extraCategories.style.display === 'none') {
+          extraCategories.style.display = 'flex';
+          expandBtn.classList.add('expanded');
+        }
+      }
+    });
+  }
+});
 
 // Добавление транзакции
 addTransactionButton.addEventListener('click', () => {
@@ -44,19 +143,46 @@ addTransactionButton.addEventListener('click', () => {
     amount: parseFloat(amountInput.value),
     type: typeInput.value,
     payment: paymentInput.value,
-    date: new Date().toISOString()
+    date: editingTransactionId ? transactions.find(t => t.id === editingTransactionId).date : new Date().toISOString()
   };
+  
+  // Добавляем категорию только если она выбрана
+  if (selectedCategory) {
+    transaction.category = selectedCategory;
+  }
 
-  db.collection('transactions').add(transaction)
-    .then(() => {
-      console.log("Транзакция добавлена успешно!");
-      loadTransactions();
-      descriptionInput.value = '';
-      amountInput.value = '';
-    })
-    .catch((error) => {
-      console.error("Ошибка добавления транзакции: ", error);
-    });
+  if (editingTransactionId) {
+    // Обновление существующей транзакции
+    db.collection('transactions').doc(editingTransactionId).update(transaction)
+      .then(() => {
+        console.log("Транзакция обновлена успешно!");
+        editingTransactionId = null;
+        addTransactionButton.textContent = 'Добавить';
+        loadTransactions();
+      })
+      .catch((error) => {
+        console.error("Ошибка обновления транзакции: ", error);
+      });
+  } else {
+    // Добавление новой транзакции
+    db.collection('transactions').add(transaction)
+      .then(() => {
+        console.log("Транзакция добавлена успешно!");
+        loadTransactions();
+      })
+      .catch((error) => {
+        console.error("Ошибка добавления транзакции: ", error);
+      });
+  }
+  
+  // Очистка формы
+  descriptionInput.value = '';
+  amountInput.value = '';
+  
+  // Сброс категории (без категории по умолчанию)
+  selectedCategory = null;
+  const categoryTabs = document.querySelectorAll('.category-tab');
+  categoryTabs.forEach(tab => tab.classList.remove('active'));
 });
 
 // Загрузка транзакций
@@ -93,15 +219,25 @@ function renderTransactions() {
       month: '2-digit',
       day: '2-digit'
     });
+    
+    // Добавляем отображение категории, если она есть
+    const categoryBadge = transaction.category ? `<span class="transaction-category">${transaction.category}</span>` : '';
+    
     li.innerHTML = `
       <div class="transaction-description">
         ${transaction.description}
+        ${categoryBadge}
         <span class="transaction-date">${date}</span>
       </div>
       <span>${transaction.amount.toLocaleString('ru-RU', { style: 'currency', currency: 'RUB' })}</span>
-      <button class="btn-trash" onclick="deleteTransaction('${transaction.id}')">
-        <i class="bi bi-trash"></i>
-      </button>
+      <div class="transaction-actions">
+        <button class="btn-edit" onclick="editTransaction('${transaction.id}')">
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button class="btn-trash" onclick="deleteTransaction('${transaction.id}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
     `;
     transactionList.appendChild(li);
   });
@@ -186,6 +322,47 @@ toggleTransactionsButton.addEventListener('click', () => {
   toggleTransactionsButton.textContent = isCollapsed ? 'Развернуть' : 'Свернуть';
   renderTransactions();
 });
+
+// Редактирование транзакции
+window.editTransaction = (id) => {
+  const transaction = transactions.find(t => t.id === id);
+  if (transaction) {
+    descriptionInput.value = transaction.description;
+    amountInput.value = transaction.amount;
+    typeInput.value = transaction.type;
+    paymentInput.value = transaction.payment;
+    
+    // Устанавливаем категорию, если она есть
+    const categoryTabs = document.querySelectorAll('.category-tab');
+    const extraCategories = document.getElementById('categoryTabsExtra');
+    const expandBtn = document.getElementById('expandCategoriesBtn');
+    
+    // Сбрасываем все выделения
+    categoryTabs.forEach(tab => tab.classList.remove('active'));
+    
+    if (transaction.category) {
+      selectedCategory = transaction.category;
+      
+      // Ищем таб с этой категорией
+      categoryTabs.forEach(tab => {
+        if (tab.getAttribute('data-category') === transaction.category) {
+          tab.classList.add('active');
+          
+          // Если категория в скрытом блоке, раскрываем его
+          if (extraCategories.contains(tab)) {
+            extraCategories.style.display = 'flex';
+            expandBtn.classList.add('expanded');
+          }
+        }
+      });
+    } else {
+      selectedCategory = null;
+    }
+    
+    editingTransactionId = id;
+    addTransactionButton.textContent = 'Сохранить';
+  }
+};
 
 // Загрузка транзакций при загрузке страницы
 loadTransactions();
